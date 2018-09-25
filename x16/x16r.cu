@@ -34,6 +34,7 @@ extern "C" {
 #include "cuda_x16.h"
 
 static uint32_t *d_hash[MAX_GPUS];
+static uint8_t s_firstalgo = 0xFF;
 
 enum Algo {
 	BLAKE = 0,
@@ -244,7 +245,7 @@ extern "C" int scanhash_x16r(int thr_id, struct work* work, uint32_t max_nonce, 
 	const uint32_t first_nonce = pdata[19];
 	const int dev_id = device_map[thr_id];
 	int intensity = (device_sm[dev_id] > 500 && !is_windows()) ? 20 : 19;
-	if (strstr(device_name[dev_id], "GTX 1080")) intensity = 20;
+	//if (strstr(device_name[dev_id], "GTX 1080")) intensity = 20;
 	uint32_t throughput = cuda_default_throughput(thr_id, 1U << intensity);
 	//if (init[thr_id]) throughput = min(throughput, max_nonce - first_nonce);
 
@@ -291,8 +292,12 @@ extern "C" int scanhash_x16r(int thr_id, struct work* work, uint32_t max_nonce, 
 
 	if (opt_benchmark) {
 		((uint32_t*)ptarget)[7] = 0x003f;
+		((uint8_t*)pdata)[8] = 0xFF;
+		hashOrder[0] = 'F';
+
+		//((uint32_t*)ptarget)[7] = 0x003f;
 		//((uint8_t*)pdata)[8] = 0x90; // hashOrder[0] = '9'; for simd 80 + blake512 64
-		((uint8_t*)pdata)[8] = 0xAA; // hashOrder[0] = 'A'; for echo 80 + 64
+		//((uint8_t*)pdata)[8] = 0xAA; // hashOrder[0] = 'A'; for echo 80 + 64
 		//((uint8_t*)pdata)[8] = 0xB0; // hashOrder[0] = 'B'; for hamsi 80 + blake512 64
 		//((uint8_t*)pdata)[8] = 0xC0; // hashOrder[0] = 'C'; for fugue 80 + blake512 64
 		//((uint8_t*)pdata)[8] = 0xE0; // hashOrder[0] = 'E'; for whirlpool 80 + blake512 64
@@ -375,6 +380,14 @@ extern "C" int scanhash_x16r(int thr_id, struct work* work, uint32_t max_nonce, 
 
 		// Hash with CUDA
 
+		// Algo80 Hash Loop Timer
+		cudaEvent_t startalgo80, stopalgo80;
+		cudaEventCreate(&stopalgo80);
+		cudaEventCreate(&startalgo80);
+
+		// Start Algo80 Hash Loop Timer
+		cudaEventRecord(startalgo80);
+
 		switch (algo80) {
 			case BLAKE:
 				quark_blake512_cpu_hash_80(thr_id, throughput, pdata[19], d_hash[thr_id]); order++;
@@ -441,83 +454,125 @@ extern "C" int scanhash_x16r(int thr_id, struct work* work, uint32_t max_nonce, 
 				TRACE("sha512 :");
 				break;
 		}
+		// Stop Algo80 Hash Loop Timer
+		cudaEventRecord(stopalgo80);
 
-		for (int i = 1; i < 16; i++)
-		{
-			const char elem = hashOrder[i];
-			const uint8_t algo64 = elem >= 'A' ? elem - 'A' + 10 : elem - '0';
+		// Algo64 Hash Loop Timer
+		cudaEvent_t startalgo64, stopalgo64;
+		cudaEventCreate(&startalgo64);
+		cudaEventCreate(&stopalgo64);
 
-			switch (algo64) {
-			case BLAKE:
-				quark_blake512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("blake  :");
-				break;
-			case BMW:
-				quark_bmw512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("bmw    :");
-				break;
-			case GROESTL:
-				quark_groestl512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("groestl:");
-				break;
-			case JH:
-				quark_jh512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("jh512  :");
-				break;
-			case KECCAK:
-				quark_keccak512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("keccak :");
-				break;
-			case SKEIN:
-				quark_skein512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("skein  :");
-				break;
-			case LUFFA:
-				x11_luffa512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("luffa  :");
-				break;
-			case CUBEHASH:
-				x11_cubehash512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("cube   :");
-				break;
-			case SHAVITE:
-				x11_shavite512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("shavite:");
-				break;
-			case SIMD:
-				x11_simd512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("simd   :");
-				break;
-			case ECHO:
-				if (use_compat_kernels[thr_id])
-					x11_echo512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				else {
-					x16_echo512_cpu_hash_64(thr_id, throughput, d_hash[thr_id]); order++;
+		// Start Algo64 Timer
+		cudaEventRecord(startalgo64);
+	{
+			for (int i = 1; i < 16; i++)
+			{
+				const char elem = hashOrder[i];
+				const uint8_t algo64 = elem >= 'A' ? elem - 'A' + 10 : elem - '0';
+
+				switch (algo64) {
+				case BLAKE:
+					quark_blake512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("blake  :");
+					break;
+				case BMW:
+					quark_bmw512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("bmw    :");
+					break;
+				case GROESTL:
+					quark_groestl512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("groestl:");
+					break;
+				case JH:
+					quark_jh512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("jh512  :");
+					break;
+				case KECCAK:
+					quark_keccak512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("keccak :");
+					break;
+				case SKEIN:
+					quark_skein512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("skein  :");
+					break;
+				case LUFFA:
+					x11_luffa512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("luffa  :");
+					break;
+				case CUBEHASH:
+					x11_cubehash512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("cube   :");
+					break;
+				case SHAVITE:
+					x11_shavite512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("shavite:");
+					break;
+				case SIMD:
+					x11_simd512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("simd   :");
+					break;
+				case ECHO:
+					if (use_compat_kernels[thr_id])
+						x11_echo512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					else {
+						x16_echo512_cpu_hash_64(thr_id, throughput, d_hash[thr_id]); order++;
+					}
+					TRACE("echo   :");
+					break;
+				case HAMSI:
+					x13_hamsi512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("hamsi  :");
+					break;
+				case FUGUE:
+					x13_fugue512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("fugue  :");
+					break;
+				case SHABAL:
+					x14_shabal512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("shabal :");
+					break;
+				case WHIRLPOOL:
+					x15_whirlpool_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
+					TRACE("shabal :");
+					break;
+				case SHA512:
+					x17_sha512_cpu_hash_64(thr_id, throughput, pdata[19], d_hash[thr_id]); order++;
+					TRACE("sha512 :");
+					break;
 				}
-				TRACE("echo   :");
-				break;
-			case HAMSI:
-				x13_hamsi512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("hamsi  :");
-				break;
-			case FUGUE:
-				x13_fugue512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("fugue  :");
-				break;
-			case SHABAL:
-				x14_shabal512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("shabal :");
-				break;
-			case WHIRLPOOL:
-				x15_whirlpool_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash[thr_id], order++);
-				TRACE("shabal :");
-				break;
-			case SHA512:
-				x17_sha512_cpu_hash_64(thr_id, throughput, pdata[19], d_hash[thr_id]); order++;
-				TRACE("sha512 :");
-				break;
+
 			}
 		}
+		// Stop Algo64 Timer
+		cudaEventRecord(stopalgo64);
+
+		// Sync Timers
+		cudaEventSynchronize(stopalgo64);
+		cudaEventSynchronize(stopalgo80);
+
+		// Record Results
+		float algo64time;
+		float algo80time;
+		cudaEventElapsedTime(&algo64time, startalgo64, stopalgo64);
+		cudaEventElapsedTime(&algo80time, startalgo80, stopalgo80);
+
+		//Clear Timer Events
+		cudaEventDestroy(startalgo64);
+		cudaEventDestroy(stopalgo64);
+		cudaEventDestroy(startalgo80);
+		cudaEventDestroy(stopalgo80);
+
+
+		// Add algo and hash info output
+		if (hashOrder[0] != s_firstalgo) {
+			s_firstalgo = hashOrder[0];
+			if (!thr_id) gpulog(LOG_INFO, thr_id, CL_WHT"%s", device_name[dev_id]);
+			if (!thr_id) applog(LOG_INFO, CL_YL2 "ALGO is now "CL_WHT"%s, Loop Time "CL_WHT"%.2f ms", algo_strings[algo80], algo80time);
+			if (!thr_id) applog(LOG_INFO, CL_YL2 "Hashing Order is "CL_WHT"%s", hashOrder);
+			if (!thr_id) applog(LOG_INFO, CL_YL2 "16x Hashing Loop Time "CL_WHT"%.2f ms", algo64time);
+			if (!thr_id) applog(LOG_BLUE, CL_CYN "...............................................................");
+		}
+
 
 		*hashes_done = pdata[19] - first_nonce + throughput;
 

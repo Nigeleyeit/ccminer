@@ -35,13 +35,13 @@ __device__
 static void echo_round(uint32_t* const sharedMemory, uint32_t *W, uint32_t &k0)
 {
 	// Big Sub Words
-	#pragma unroll 16
+#pragma unroll 16
 	for (int idx = 0; idx < 16; idx++) {
 		AES_2ROUND(sharedMemory, W[(idx << 2) + 0], W[(idx << 2) + 1], W[(idx << 2) + 2], W[(idx << 2) + 3], k0);
 	}
 
 	// Shift Rows
-	#pragma unroll 4
+#pragma unroll 4
 	for (int i = 0; i < 4; i++)
 	{
 		uint32_t t[4];
@@ -68,7 +68,7 @@ static void echo_round(uint32_t* const sharedMemory, uint32_t *W, uint32_t &k0)
 	}
 
 	// Mix Columns
-	#pragma unroll 4
+#pragma unroll 4
 	for (int i = 0; i < 4; i++)
 	{
 		#pragma unroll 4
@@ -106,7 +106,7 @@ void cuda_echo_round_80(uint32_t *const __restrict__ sharedMemory, uint32_t *con
 {
 	uint32_t h[29]; // <= 127 bytes input
 
-	#pragma unroll 8
+	#pragma unroll 
 	for (int i = 0; i < 18; i += 2)
 		AS_UINT2(&h[i]) = AS_UINT2(&data[i]);
 	h[18] = data[18];
@@ -124,7 +124,7 @@ void cuda_echo_round_80(uint32_t *const __restrict__ sharedMemory, uint32_t *con
 	uint32_t k0 = 640; // bitlen
 	uint32_t W[64];
 
-	#pragma unroll 8
+#pragma unroll 
 	for (int i = 0; i < 32; i+=4) {
 		W[i] = 512; // L
 		W[i+1] = 0; // H
@@ -133,22 +133,22 @@ void cuda_echo_round_80(uint32_t *const __restrict__ sharedMemory, uint32_t *con
 	}
 
 	uint32_t Z[16];
-	#pragma unroll
+#pragma unroll
 	for (int i = 0;  i<16; i++) Z[i] = W[i];
-	#pragma unroll
+#pragma unroll
 	for (int i = 32; i<61; i++) W[i] = h[i - 32];
-	#pragma unroll
+#pragma unroll
 	for (int i = 61; i<64; i++) W[i] = 0;
 
 	for (int i = 0; i < 10; i++)
 		echo_round(sharedMemory, W, k0);
 
-	#pragma unroll 16
+#pragma unroll
 	for (int i = 0; i < 16; i++) {
 		Z[i] ^= h[i] ^ W[i] ^ W[i + 32];
 	}
 
-	#pragma unroll 8
+	#pragma unroll
 	for (int i = 0; i < 16; i += 2)
 		AS_UINT2(&hash[i]) = AS_UINT2(&Z[i]);
 }
@@ -181,10 +181,10 @@ __constant__ static uint32_t c_PaddedMessage80[20];
 __host__
 void x16_echo512_setBlock_80(void *endiandata)
 {
-	cudaMemcpyToSymbol(c_PaddedMessage80, endiandata, sizeof(c_PaddedMessage80), 0, cudaMemcpyHostToDevice);
+	cudaMemcpyToSymbolAsync(c_PaddedMessage80, endiandata, sizeof(c_PaddedMessage80), 0, cudaMemcpyHostToDevice);
 }
 
-__global__ __launch_bounds__(128, 7) /* will force 72 registers */
+__global__ __launch_bounds__(64, 7) /* will force 72 registers */
 void x16_echo512_gpu_hash_80(uint32_t threads, uint32_t startNonce, uint64_t *g_hash)
 {
 	__shared__ uint32_t sharedMemory[1024];
@@ -205,7 +205,7 @@ void x16_echo512_gpu_hash_80(uint32_t threads, uint32_t startNonce, uint64_t *g_
 __host__
 void x16_echo512_cuda_hash_80(int thr_id, const uint32_t threads, const uint32_t startNonce, uint32_t *d_hash)
 {
-	const uint32_t threadsperblock = 128;
+	const uint32_t threadsperblock = 64;
 
 	dim3 grid((threads + threadsperblock-1)/threadsperblock);
 	dim3 block(threadsperblock);

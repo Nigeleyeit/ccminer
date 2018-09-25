@@ -18,12 +18,12 @@ __device__
 static void echo_round_alexis(const uint32_t sharedMemory[4][256], uint32_t *W, uint32_t &k0)
 {
 	// Big Sub Words
-	#pragma unroll 16
+#pragma unroll 
 	for (int idx = 0; idx < 16; idx++)
 		AES_2ROUND(sharedMemory,W[(idx<<2) + 0], W[(idx<<2) + 1], W[(idx<<2) + 2], W[(idx<<2) + 3], k0);
 
 	// Shift Rows
-	#pragma unroll 4
+#pragma unroll 4
 	for (int i = 0; i < 4; i++){
 		uint32_t t[4];
 		/// 1, 5, 9, 13
@@ -47,7 +47,7 @@ static void echo_round_alexis(const uint32_t sharedMemory[4][256], uint32_t *W, 
 		W[i +52] = t[0];
 	}
 	// Mix Columns
-	#pragma unroll 4
+#pragma unroll 4
 	for (int i = 0; i < 4; i++){ // Schleife über je 2*uint32_t
 		#pragma unroll 4
 		for (int idx = 0; idx < 64; idx += 16){ // Schleife über die elemnte
@@ -78,7 +78,7 @@ static void echo_round_alexis(const uint32_t sharedMemory[4][256], uint32_t *W, 
 	}
 }
 
-__global__ __launch_bounds__(128, 5) /* will force 80 registers */
+__global__ __launch_bounds__(128, 4) /* will force 80 registers */
 static void x16_echo512_gpu_hash_64(uint32_t threads, uint32_t* g_hash, uint32_t* const d_filter, const uint32_t filter_val)
 {
 	__shared__ uint32_t sharedMemory[4][256];
@@ -118,7 +118,7 @@ static void x16_echo512_gpu_hash_64(uint32_t threads, uint32_t* g_hash, uint32_t
 
 		k0 = 520;
 
-		#pragma unroll 4
+#pragma unroll 
 		for (uint32_t idx = 0; idx < 16; idx += 4) {
 			AES_2ROUND(sharedMemory, h[idx + 0], h[idx + 1], h[idx + 2], h[idx + 3], k0);
 		}
@@ -126,7 +126,7 @@ static void x16_echo512_gpu_hash_64(uint32_t threads, uint32_t* g_hash, uint32_t
 
 		uint32_t W[64];
 
-		#pragma unroll 4
+#pragma unroll 4
 		for (uint32_t i = 0; i < 4; i++)
 		{
 			uint32_t a = P[i];
@@ -221,10 +221,11 @@ static void x16_echo512_gpu_hash_64(uint32_t threads, uint32_t* g_hash, uint32_t
 			W[48 + i + 12] = c ^ ab ^ abx ^ bcx ^ cdx;
 		}
 
+
 		for (int k = 1; k < 10; k++)
 			echo_round_alexis(sharedMemory,W,k0);
 
-		#pragma unroll 4
+#pragma unroll 4
 		for (int i = 0; i < 16; i += 4)
 		{
 			W[i] ^= W[32 + i] ^ 512;
@@ -240,6 +241,7 @@ static void x16_echo512_gpu_hash_64(uint32_t threads, uint32_t* g_hash, uint32_t
 __host__
 void x16_echo512_cpu_hash_64(int thr_id, uint32_t threads, uint32_t *d_hash)
 {
+ 
 	const uint32_t threadsperblock = 128;
 
 	dim3 grid((threads + threadsperblock-1)/threadsperblock);
@@ -251,6 +253,7 @@ void x16_echo512_cpu_hash_64(int thr_id, uint32_t threads, uint32_t *d_hash)
 __host__
 void phi_echo512_cpu_hash_64_filtered(int thr_id, const uint32_t threads, uint32_t* g_hash, uint32_t* d_filter)
 {
+
 	const uint32_t threadsperblock = 128;
 
 	dim3 grid((threads + threadsperblock - 1) / threadsperblock);

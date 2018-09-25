@@ -13,10 +13,10 @@
 #define __byte_perm(x, y, m) (x|y)
 #endif
 
-#define TPB50_1 128
-#define TPB50_2 128
-#define TPB52_1 128
-#define TPB52_2 128
+#define TPB50_1 64
+#define TPB50_2 64
+#define TPB52_1 64
+#define TPB52_2 64
 
 #define sph_u32 uint32_t
 #define sph_s32 int32_t
@@ -1675,26 +1675,26 @@ void x16_simd512_setBlock_80(void *pdata)
 	cudaMemcpyToSymbol(c_PaddedMessage80, pdata, sizeof(c_PaddedMessage80), 0, cudaMemcpyHostToDevice);
 }
 
-#define TPB_SIMD 128
+#define TPB_SIMD 64
 __global__
-__launch_bounds__(TPB_SIMD,1)
+__launch_bounds__(TPB_SIMD,2)
 static void x16_simd512_gpu_80(const uint32_t threads, const uint32_t startNonce, uint64_t *g_outputhash)
 {
 	const uint32_t thread = (blockDim.x * blockIdx.x + threadIdx.x);
 	if (thread < threads)
 	{
 		uint32_t A[20];
-		#pragma unroll 10
+#pragma unroll
 		for (int i=0; i < 20; i += 2)
 			AS_UINT2(&A[i]) = AS_UINT2(&c_PaddedMessage80[i]);
 		A[19] = cuda_swab32(startNonce + thread);
 
 		// simd
 		unsigned char x[128];
-		#pragma unroll
+#pragma unroll
 		for (int i = 0; i < 20; i += 2)
 			AS_UINT2(&x[i*4]) = AS_UINT2(&A[i]);
-		#pragma unroll
+#pragma unroll
 		for(int i = 80; i < 128; i+=4) AS_U32(&x[i]) = 0;
 
 		// SIMD_IV512
@@ -1706,7 +1706,7 @@ static void x16_simd512_gpu_80(const uint32_t threads, const uint32_t startNonce
 		s32 q[256];
 		FFT256(0, 1, 0, ll1);
 
-		#pragma unroll
+#pragma unroll
 		for (int i = 0; i < 256; i ++) {
 			s32 tq = q[i] + yoff_b_n[i];
 			tq = REDS2(tq);
@@ -1818,7 +1818,8 @@ static void x16_simd512_gpu_80(const uint32_t threads, const uint32_t startNonce
 
 		const uint64_t hashPosition = thread;
 		uint32_t *Hash = (uint32_t*)(&g_outputhash[(size_t)8 * hashPosition]);
-		#pragma unroll
+
+#pragma unroll
 		for (int i=0; i < 16; i += 2)
 			*(uint2*)&Hash[i] = *(uint2*)&A[i];
 	}
@@ -1829,8 +1830,9 @@ static void x16_simd512_gpu_80(const uint32_t threads, const uint32_t startNonce
 __host__
 void x16_simd512_cuda_hash_80(int thr_id, const uint32_t threads, const uint32_t startNonce, uint32_t *d_hash)
 {
-	const uint32_t tpb = 128;
+	const uint32_t tpb = 64;
 	const dim3 grid((threads + tpb - 1) / tpb);
 	const dim3 block(tpb);
+
 	x16_simd512_gpu_80 <<<grid, block>>> (threads, startNonce, (uint64_t*) d_hash);
 }

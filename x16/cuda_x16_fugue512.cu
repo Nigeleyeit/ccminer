@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <cuda_helper.h>
 
-#define TPB 256
+#define TPB 128
 
 /*
  * fugue512-80 x16r kernel implementation.
@@ -316,8 +316,8 @@ void x16_fugue512_gpu_hash_80(const uint32_t threads, const uint32_t startNonce,
 	mixtabs[thr+256] = ROR8(tmp);
 	mixtabs[thr+512] = ROL16(tmp);
 	mixtabs[thr+768] = ROL8(tmp);
-#if TPB <= 256
-	if (blockDim.x < 256) {
+#if TPB <= 128
+	if (blockDim.x < 128) {
 		const uint32_t thr = (threadIdx.x + 0x80) & 0xFF;
 		const uint32_t tmp = tex1Dfetch(mixTab0Tex, thr);
 		mixtabs[thr] = tmp;
@@ -334,7 +334,7 @@ void x16_fugue512_gpu_hash_80(const uint32_t threads, const uint32_t startNonce,
 	{
 		uint32_t Data[20];
 
-		#pragma unroll
+#pragma unroll 10
 		for(int i = 0; i < 10; i++)
 			AS_UINT2(&Data[i * 2]) = AS_UINT2(&c_PaddedMessage80[i]);
 		Data[19] = (startNonce + thread);
@@ -367,13 +367,13 @@ void x16_fugue512_gpu_hash_80(const uint32_t threads, const uint32_t startNonce,
 		SUB_ROR3;
 		SUB_ROR9;
 
-		#pragma unroll 32
+#pragma unroll  
 		for (int i = 0; i < 32; i++) {
 			SUB_ROR3;
 			CMIX36(S00, S01, S02, S04, S05, S06, S18, S19, S20);
 			SMIX(S00, S01, S02, S03);
 		}
-		#pragma unroll 13
+#pragma unroll 13
 		for (int i = 0; i < 13; i++) {
 			S04 ^= S00;
 			S09 ^= S00;
@@ -424,7 +424,7 @@ void x16_fugue512_gpu_hash_80(const uint32_t threads, const uint32_t startNonce,
 
 		const size_t hashPosition = thread;
 		uint64_t* pHash = &g_hash[hashPosition << 3];
-		#pragma unroll 4
+#pragma unroll 4
 		for(int i = 0; i < 4; i++)
 			AS_UINT4(&pHash[i * 2]) = AS_UINT4(&Data[i * 4]);
 	}
@@ -446,7 +446,7 @@ void x16_fugue512_gpu_hash_80(const uint32_t threads, const uint32_t startNonce,
 __host__
 void x16_fugue512_cpu_init(int thr_id, uint32_t threads)
 {
-	texDef(0, mixTab0Tex, mixTab0m, mixtab0, sizeof(uint32_t)*256);
+	texDef(0, mixTab0Tex, mixTab0m, mixtab0, sizeof(uint32_t)*128);
 }
 
 __host__
