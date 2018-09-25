@@ -1,5 +1,7 @@
 # ccminer
 
+################ THE1 Version tweaked for some extra speed with X16R and PHI #########################
+
 Based on Christian Buchner's &amp; Christian H.'s CUDA project, no more active on github since 2014.
 
 Check the [README.txt](README.txt) for the additions
