@@ -30,6 +30,7 @@ extern void cubehash512_cuda_hash_144(const int thr_id, const uint32_t threads, 
 extern void lyra2_cpu_init(int thr_id, uint32_t threads, uint64_t *d_matrix);
 extern void lyra2_cuda_hash_64(int thr_id, const uint32_t threads, uint64_t* d_hash_256, uint32_t* d_hash_512, bool gtx750ti);
 
+
 extern void streebog_cpu_hash_64(int thr_id, uint32_t threads, uint32_t *d_hash);
 extern void phi_streebog_hash_64_filtered(int thr_id, const uint32_t threads, uint32_t *g_hash, uint32_t *d_filter);
 extern void phi_echo512_cpu_hash_64_filtered(int thr_id, const uint32_t threads, uint32_t* g_hash, uint32_t* d_filter);
@@ -48,6 +49,7 @@ static bool has_roots;
 
 extern "C" void phi2_hash(void *output, const void *input)
 {
+
 	unsigned char _ALIGN(128) hash[64];
 	unsigned char _ALIGN(128) hashA[64];
 	unsigned char _ALIGN(128) hashB[64];
@@ -64,6 +66,7 @@ extern "C" void phi2_hash(void *output, const void *input)
 
 	LYRA2(&hashA[ 0], 32, &hashB[ 0], 32, &hashB[ 0], 32, 1, 8, 8);
 	LYRA2(&hashA[32], 32, &hashB[32], 32, &hashB[32], 32, 1, 8, 8);
+
 
 	sph_jh512_init(&ctx_jh);
 	sph_jh512(&ctx_jh, (const void*)hashA, 64);
@@ -109,11 +112,8 @@ extern "C" int scanhash_phi2(int thr_id, struct work* work, uint32_t max_nonce, 
 	const uint32_t first_nonce = pdata[19];
 	const int dev_id = device_map[thr_id];
 
-	int intensity = (device_sm[dev_id] > 500 && !is_windows()) ? 17 : 16;
-	if (device_sm[dev_id] == 500) intensity = 15;
-	if (device_sm[dev_id] == 600) intensity = 17;
-
-	uint32_t throughput = cuda_default_throughput(thr_id, 1U << intensity);
+	uint32_t throughput = gpus_intensity[thr_id];
+	
 	if (init[thr_id]) throughput = min(throughput, max_nonce - first_nonce);
 	if (init[thr_id]) throughput = max(throughput & 0xffffff80, 128); // for shared mem
 
@@ -133,19 +133,17 @@ extern "C" int scanhash_phi2(int thr_id, struct work* work, uint32_t max_nonce, 
 		use_compat_kernels[thr_id] = (cuda_arch[dev_id] < 500);
 		gtx750ti = (strstr(device_name[dev_id], "GTX 750 Ti") != NULL);
 
-		size_t matrix_sz = device_sm[dev_id] > 500 ? sizeof(uint64_t) * 16 : sizeof(uint64_t) * 8 * 8 * 3 * 4;
+		size_t matrix_sz = sizeof(uint64_t) * 16;
 		CUDA_CALL_OR_RET_X(cudaMalloc(&d_matrix[thr_id], matrix_sz * throughput), -1);
 		CUDA_CALL_OR_RET_X(cudaMalloc(&d_hash_256[thr_id], (size_t)32 * throughput), -1);
 		CUDA_CALL_OR_RET_X(cudaMalloc(&d_hash_512[thr_id], (size_t)64 * throughput), -1);
 		CUDA_CALL_OR_RET_X(cudaMalloc(&d_nonce_br[thr_id], sizeof(uint32_t) * throughput), -1);
-		if (use_compat_kernels[thr_id]) {
-			CUDA_CALL_OR_RET_X(cudaMalloc(&d_hash_br2[thr_id], (size_t)64 * throughput), -1);
-		}
 
 		lyra2_cpu_init(thr_id, throughput, d_matrix[thr_id]);
+
+
 		quark_jh512_cpu_init(thr_id, throughput);
 		quark_skein512_cpu_init(thr_id, throughput);
-		if (use_compat_kernels[thr_id]) x11_echo512_cpu_init(thr_id, throughput);
 
 		cuda_check_cpu_init(thr_id, throughput);
 		init[thr_id] = true;
@@ -153,54 +151,47 @@ extern "C" int scanhash_phi2(int thr_id, struct work* work, uint32_t max_nonce, 
 
 	has_roots = false;
 	uint32_t endiandata[36];
+
 	for (int k = 0; k < 36; k++) {
 		be32enc(&endiandata[k], pdata[k]);
 		if (k >= 20 && pdata[k]) has_roots = true;
 	}
 
 	cuda_check_cpu_setTarget(ptarget);
+
 	if (has_roots)
 		cubehash512_setBlock_144(thr_id, endiandata);
 	else
 		cubehash512_setBlock_80(thr_id, endiandata);
+	
 
 	do {
 		int order = 0;
+
 		if (has_roots)
 			cubehash512_cuda_hash_144(thr_id, throughput, pdata[19], d_hash_512[thr_id]);
 		else
 			cubehash512_cuda_hash_80(thr_id, throughput, pdata[19], d_hash_512[thr_id]);
-		order++;
-		TRACE("cube   ");
-
-		lyra2_cuda_hash_64(thr_id, throughput, d_hash_256[thr_id], d_hash_512[thr_id], gtx750ti);
-		order++;
-		TRACE("lyra   ");
-
-		quark_jh512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash_512[thr_id], order++);
-		TRACE("jh     ");
-
-		order++;
-		if (!use_compat_kernels[thr_id]) {
-			phi_filter_cuda(thr_id, throughput, d_hash_512[thr_id], NULL, d_nonce_br[thr_id]);
-			phi_streebog_hash_64_filtered(thr_id, throughput, d_hash_512[thr_id], d_nonce_br[thr_id]);
+			order++;
+			TRACE("cube   "); 
+			lyra2_cuda_hash_64(thr_id, throughput, d_hash_256[thr_id], d_hash_512[thr_id], gtx750ti); 
+			order++;
+			TRACE("lyra   ");
+			quark_jh512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash_512[thr_id], order++);
+			TRACE("jh     ");
+			//order++;
+			phi_filter_cuda(thr_id, throughput, d_hash_512[thr_id], NULL, d_nonce_br[thr_id]);  
+			phi_streebog_hash_64_filtered(thr_id, throughput, d_hash_512[thr_id], d_nonce_br[thr_id]); 
 			phi_echo512_cpu_hash_64_filtered(thr_id, throughput, d_hash_512[thr_id], d_nonce_br[thr_id]);
 			phi_echo512_cpu_hash_64_filtered(thr_id, throughput, d_hash_512[thr_id], d_nonce_br[thr_id]);
-		} else {
-			// todo: nonces vector to reduce amount of hashes to compute
-			phi_filter_cuda(thr_id, throughput, d_hash_512[thr_id], d_hash_br2[thr_id], d_nonce_br[thr_id]);
-			streebog_cpu_hash_64(thr_id, throughput, d_hash_512[thr_id]);
-			x11_echo512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash_br2[thr_id], order);
-			x11_echo512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash_br2[thr_id], order);
-			phi_merge_cuda(thr_id, throughput, d_hash_512[thr_id], d_hash_br2[thr_id], d_nonce_br[thr_id]);
-		}
-		TRACE("mix    ");
-
-		quark_skein512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash_512[thr_id], order++);
-		TRACE("skein  ");
-
-		phi_final_compress_cuda(thr_id, throughput, d_hash_512[thr_id]);
-		TRACE("xor  ");
+			TRACE("mix    ");
+			quark_skein512_cpu_hash_64(thr_id, throughput, pdata[19], NULL, d_hash_512[thr_id], order++);
+			TRACE("skein  ");
+		
+			//MyStreamSynchronize(NULL, order, thr_id);
+			
+			phi_final_compress_cuda(thr_id, throughput, d_hash_512[thr_id]);
+			TRACE("xor  ");
 
 		work->nonces[0] = cuda_check_hash(thr_id, throughput, pdata[19], d_hash_512[thr_id]);
 		if (work->nonces[0] != UINT32_MAX)

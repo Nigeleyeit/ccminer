@@ -310,7 +310,7 @@ void cubehash512_gpu_hash_144(const uint32_t threads, const uint32_t startNounce
 __host__
 void cubehash512_cuda_hash_144(const int thr_id, const uint32_t threads, const uint32_t startNounce, uint32_t *d_hash)
 {
-	const uint32_t threadsperblock = 256;
+	const uint32_t threadsperblock = 512;
 	dim3 grid((threads + threadsperblock-1)/threadsperblock);
 	dim3 block(threadsperblock);
 
