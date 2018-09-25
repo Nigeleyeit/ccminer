@@ -1,4 +1,4 @@
-# ccminer
+# ccminer The1 Tweaked
 
 ################ THE1 Version tweaked for some extra speed with X16R and PHI #########################
 
