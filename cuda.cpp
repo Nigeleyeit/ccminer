@@ -204,7 +204,7 @@ void cuda_reset_device(int thr_id, bool *init)
 		restart_threads();
 		cudaDeviceSynchronize();
 		while (cudaStreamQuery(NULL) == cudaErrorNotReady)
-			usleep(1000);
+			usleep((useconds_t)(1e6*0.95));
 	}
 	cudaDeviceReset();
 	if (opt_cudaschedule >= 0) {
@@ -268,36 +268,37 @@ int cuda_gpu_info(struct cgpu_info *gpu)
 	return -1;
 }
 
-// Zeitsynchronisations-Routine von cudaminer mit CPU sleep
-// Note: if you disable all of these calls, CPU usage will hit 100%
-typedef struct { double value[8]; } tsumarray;
 cudaError_t MyStreamSynchronize(cudaStream_t stream, int situation, int thr_id)
 {
 	cudaError_t result = cudaSuccess;
 	if (abort_flag)
 		return result;
-	if (situation >= 0)
+
+	__int64 sleeptime = 8;
+	int sleeploops = 0;
+
+
+	for (int i = 0; i <= sleeploops; i++)
 	{
-		static std::map<int, tsumarray> tsum;
 
-		double a = 0.95, b = 0.05;
-		if (tsum.find(situation) == tsum.end()) { a = 0.5; b = 0.5; } // faster initial convergence
-
-		double tsync = 0.0;
-		double tsleep = 0.95 * tsum[situation].value[thr_id];
 		if (cudaStreamQuery(stream) == cudaErrorNotReady)
+
 		{
-			usleep((useconds_t)(1e6*tsleep));
-			struct timeval tv_start, tv_end;
-			gettimeofday(&tv_start, NULL);
-			result = cudaStreamSynchronize(stream);
-			gettimeofday(&tv_end, NULL);
-			tsync = 1e-6 * (tv_end.tv_usec-tv_start.tv_usec) + (tv_end.tv_sec-tv_start.tv_sec);
+
+			sleeploops++;
+
+			//try and sleep for microseconds to avoid cpu useage
+			usleep((__int64)sleeptime);
+
+			if (cudaStreamQuery(stream) == cudaErrorNotReady){
+				//Still not ready add more microseconds sleep time for next loop
+				sleeptime += 8;
+			}
 		}
-		if (tsync >= 0) tsum[situation].value[thr_id] = a * tsum[situation].value[thr_id] + b * (tsleep+tsync);
+
 	}
-	else
-		result = cudaStreamSynchronize(stream);
+
+
 	return result;
 }
 

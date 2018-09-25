@@ -45,7 +45,7 @@
 #include "sia/sia-rpc.h"
 #include "crypto/xmr-rpc.h"
 #include "equi/equihash.h"
-
+#define CUDA_API_PER_THREAD_DEFAULT_STREAM
 #include <cuda_runtime.h>
 
 #ifdef WIN32
@@ -106,7 +106,7 @@ int use_pok = 0;
 int use_roots = 0;
 static bool opt_background = false;
 bool opt_quiet = false;
-int opt_maxlograte = 3;
+int opt_maxlograte = 60;
 static int opt_retries = -1;
 static int opt_fail_pause = 30;
 int opt_time_limit = -1;
@@ -833,7 +833,7 @@ static bool work_decode(const json_t *val, struct work *work)
 	return true;
 }
 
-#define YES "yes!"
+#define YES "Submitted"
 #define YAY "yay!!!"
 #define BOO "booooo"
 
@@ -878,7 +878,7 @@ int share_result(int result, int pooln, double sharediff, const char *reason)
 		sprintf(solved, " solved: %u", p->solved_count);
 	}
 
-	applog(LOG_NOTICE, "accepted: %lu/%lu (%s), %s %s%s",
+	applog(LOG_NOTICE, CL_YLW "%lu / %lu | %s | %s %s%s",
 			p->accepted_count,
 			p->accepted_count + p->rejected_count,
 			suppl, s, flag, solved);
@@ -1938,8 +1938,8 @@ static void *miner_thread(void *userdata)
 			if (opt_algo == ALGO_DECRED || opt_algo == ALGO_WILDKECCAK /* getjob */)
 				work_done = true; // force "regen" hash
 			while (!work_done && time(NULL) >= (g_work_time + opt_scantime)) {
-				usleep(100*1000);
-				if (sleeptime > 4) {
+				usleep(10);
+				if (sleeptime > 6) {
 					extrajob = true;
 					break;
 				}
@@ -3271,7 +3271,7 @@ void parse_arg(int key, char *arg)
 				v = (uint32_t) d;
 				if (v > 7) { /* 0 = default */
 					if ((d - v) > 0.0) {
-						uint32_t adds = (uint32_t)floor((d - v) * (1 << (v - 8))) * 256;
+						uint32_t adds = (uint32_t)floor((d - v) * (1 << (v - 8))) * 64;
 						gpus_intensity[n] = (1 << v) + adds;
 						applog(LOG_INFO, "Adding %u threads to intensity %u, %u cuda threads",
 							adds, v, gpus_intensity[n]);
@@ -3948,7 +3948,7 @@ int main(int argc, char *argv[])
 	// get opt_quiet early
 	parse_single_opt('q', argc, argv);
 
-	printf("*** ccminer " PACKAGE_VERSION " for nVidia GPUs by tpruvot@github ***\n");
+	printf("*** ccminer " PACKAGE_VERSION " for nVidia GPUs by tpruvot@github *** Tweaked By The1 v1.6\n");
 	if (!opt_quiet) {
 		const char* arch = is_x64() ? "64-bits" : "32-bits";
 #ifdef _MSC_VER
